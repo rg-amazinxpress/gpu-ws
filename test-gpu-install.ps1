@@ -18,7 +18,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     ).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
 
     $args = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"")
-    Start-Process -FilePath "PowerShell.exe" -Verb RunAs -ArgumentList $args
+    Start-Process -FilePath "PowerShell.exe" -Verb RunAs -ArgumentList $args 
     exit
 }
 
@@ -52,17 +52,32 @@ function Test-AppInstalled {
   }
 }
 
+# install newest if a --version pin isn't available in winget
+$DefaultAllowLatestOnPinFailure = $true
+
 function Install-WithWinget {
-  param([Parameter(Mandatory)][string]$Id, [string]$Version)
-  $args = @(
-    'install','--id',$Id,'-e',
-    '--silent','--accept-package-agreements','--accept-source-agreements',
-    '--disable-interactivity'
+  param(
+    [Parameter(Mandatory)][string]$Id,
+    [string]$Version,
+    [bool]$AllowLatestOnPinFailure = $DefaultAllowLatestOnPinFailure
   )
-  if ($Version) { $args += @('--version', $Version) }
+  # try pinned
+  $args = @('install','--id',$Id,'-e','--silent',
+            '--accept-package-agreements','--accept-source-agreements',
+            '--disable-interactivity')
+  if ($Version) { $args += @('--version',$Version) }
 
   & winget @args
-  return ($LASTEXITCODE -eq 0)
+  if ($LASTEXITCODE -eq 0) { return $true }
+
+  # try latest if allowed
+  if ($Version -and $AllowLatestOnPinFailure) {
+    Write-Warning "Pinned version '$Version' not found for $Id. Installing latest."
+    & winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+    return ($LASTEXITCODE -eq 0)
+  }
+
+  return $false
 }
 
 # --- Fallback (direct URL) installer ---
