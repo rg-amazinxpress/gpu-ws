@@ -1,11 +1,11 @@
 <# 
 .SYNOPSIS
   Installs common GPU benchmarking & tuning tools on Windows 11.
-  Winget-first; optional fallbacks. Plain ASCII (no emojis) for maximum compatibility.
+  Winget-first; optional fallbacks.
 
 .USAGE
   Run as Administrator:
-    PowerShell.exe -ExecutionPolicy Bypass -File .\Install-GPU-Bench-Apps.ps1
+    PowerShell.exe -ExecutionPolicy Bypass -File .\test-gpu-install.ps1
 
 .NOTES
   - Edit the $Apps list to add/remove tools.
@@ -108,7 +108,7 @@ function Install-FromUrl {
   $proc = Start-Process -FilePath $dlPath -ArgumentList $Silent -Wait -PassThru
   return ($proc.ExitCode -eq 0)
 }
-
+ 
 # --- Catalog: edit this table to add/remove apps ---
 # Fields:
 # - Name: display name
@@ -123,13 +123,10 @@ $Apps = @(
   @{ Name="MSI Afterburner";                 Id="Guru3D.Afterburner";       Version="4.6.4" },
   @{ Name="HWiNFO64";                        Id="REALiX.HWiNFO";            Version="7.14" },
   @{ Name="Unigine Heaven Benchmark";        Id="Unigine.HeavenBenchmark";  Version="4.0" },
-
-  # Not reliably present in winget; provide a direct FallbackUrl if you want auto-install:
-  @{ Name="ASUS GPU Tweak II";               Id="";                         FallbackUrl=""; Silent="/S" },
-
-  # Your additions:
   @{ Name="EVGA Precision X1";               Id="EVGACorporation.EVGAPrecisionX1" },
-  @{ Name="Geeks3D FurMark 2 (x64)";         Id="Geeks3D.FurMark.2";        Version="2.3.0.0" }
+  @{ Name="Geeks3D FurMark 2 (x64)";         Id="Geeks3D.FurMark.2";        Version="2.3.0.0" },
+  # Not reliably present in winget; provide a direct FallbackUrl if you want auto-install:
+  @{ Name="ASUS GPU Tweak II";               Id="";                         FallbackUrl=""; Silent="/S" }
 )
 
 # --- Main ---
