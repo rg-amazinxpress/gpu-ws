@@ -13,11 +13,17 @@
   - Provide "FallbackUrl" (EXE/MSI/ZIP) if winget/pinning fails.
 #>
 
+# --- Parse command line parameters ---
+param(
+    [switch]$TestMode = $false
+)
+
 # --- self-elevate (one UAC prompt) ---
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
     ).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
 
     $args = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"")
+    if ($TestMode) { $args += '-TestMode' }
     Start-Process -FilePath "PowerShell.exe" -Verb RunAs -ArgumentList $args 
     exit
 }
@@ -52,111 +58,120 @@ function Test-AppInstalled {
   }
 }
 
-# install newest if a --version pin isn't available in winget
-$DefaultAllowLatestOnPinFailure = $true
-
 function Install-WithWinget {
-  param(
-    [Parameter(Mandatory)][string]$Id,
-    [string]$Version,
-    [bool]$AllowLatestOnPinFailure = $DefaultAllowLatestOnPinFailure
-  )
-  # try pinned
-  $args = @('install','--id',$Id,'-e','--silent',
-            '--accept-package-agreements','--accept-source-agreements',
-            '--disable-interactivity')
-  if ($Version) { $args += @('--version',$Version) }
-
-  & winget @args
-  if ($LASTEXITCODE -eq 0) { return $true }
-
-  # try latest if allowed
-  if ($Version -and $AllowLatestOnPinFailure) {
-    Write-Warning "Pinned version '$Version' not found for $Id. Installing latest."
-    & winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-    return ($LASTEXITCODE -eq 0)
-  }
-
-  return $false
+  param([Parameter(Mandatory)][string]$Id)
+  
+  Write-Note "Installing latest version of $Id"
+  & winget install --id $Id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+  return ($LASTEXITCODE -eq 0)
 }
 
-# --- Fallback (direct URL) installer ---
-function Install-FromUrl {
-  param(
-    [Parameter(Mandatory)][string]$Url,
-    [string]$Silent = '',            # e.g. /VERYSILENT /NORESTART or /S or /quiet /norestart
-    [string]$ExpectedFileName = ''   # optional
-  )
-
-  $tempDir = Join-Path $env:TEMP ("gpuapps_" + [IO.Path]::GetRandomFileName())
-  New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-
-  $fileName = if ($ExpectedFileName) { $ExpectedFileName } else { [IO.Path]::GetFileName($Url) }
-  $dlPath   = Join-Path $tempDir $fileName
-
-  Write-Note "Downloading $Url"
-  Invoke-WebRequest -Uri $Url -OutFile $dlPath -UseBasicParsing
-
-  if ($dlPath.ToLower().EndsWith('.zip')) {
-    $extract = Join-Path $tempDir 'unzipped'
-    Expand-Archive -Path $dlPath -DestinationPath $extract -Force
-    $candidate = Get-ChildItem $extract -Recurse -Include *.msi,*.exe | Sort-Object Length -Descending | Select-Object -First 1
-    if (-not $candidate) { throw "No installer found inside the ZIP." }
-    $dlPath = $candidate.FullName
-  }
-
-  $proc = Start-Process -FilePath $dlPath -ArgumentList $Silent -Wait -PassThru
-  return ($proc.ExitCode -eq 0)
-}
  
 # --- Catalog: edit this table to add/remove apps ---
 # Fields:
 # - Name: display name
-# - Id: winget package id (leave empty if not in winget)
-# - Version: exact version pin (optional)
-# - FallbackUrl: direct EXE/MSI/ZIP URL (optional)
-# - Silent: silent switch for fallback installer (optional)
+# - Id: winget package id
 $Apps = @(
-  @{ Name="Unigine Superposition Benchmark"; Id="Unigine.SuperpositionBenchmark"; Version="1.1" },
+  @{ Name="NVIDIA Control Panel";            Id="9NF8H0H7WMLT" },
   @{ Name="TechPowerUp GPU-Z";               Id="TechPowerUp.GPU-Z" },
-  @{ Name="NVIDIA GeForce Experience";       Id="Nvidia.GeForceExperience"; Version="3.28.0.417" },
-  @{ Name="MSI Afterburner";                 Id="Guru3D.Afterburner";       Version="4.6.4" },
-  @{ Name="HWiNFO64";                        Id="REALiX.HWiNFO";            Version="7.14" },
-  @{ Name="Unigine Heaven Benchmark";        Id="Unigine.HeavenBenchmark";  Version="4.0" },
-  @{ Name="EVGA Precision X1";               Id="EVGACorporation.EVGAPrecisionX1" },
-  @{ Name="Geeks3D FurMark 2 (x64)";         Id="Geeks3D.FurMark.2";        Version="2.3.0.0" },
-  # Not reliably present in winget; provide a direct FallbackUrl if you want auto-install:
-  @{ Name="ASUS GPU Tweak II";               Id="";                         FallbackUrl=""; Silent="/S" }
+  @{ Name="MSI Afterburner";                 Id="Guru3D.Afterburner" },
+  @{ Name="HWiNFO64";                        Id="REALiX.HWiNFO" },
+  @{ Name="Unigine Heaven Benchmark";        Id="Unigine.HeavenBenchmark" },
+  @{ Name="Unigine Superposition Benchmark"; Id="Unigine.SuperpositionBenchmark" },
+  @{ Name="Geeks3D FurMark 2 (x64)";         Id="Geeks3D.FurMark.2" },
+  @{ Name="Google Chrome";                   Id="Google.Chrome" }
 )
+
+# --- Manual Downloads Section ---
+# Software not available on winget - download links for manual installation
+$ManualDownloads = @{
+  "AMD Adrenalin" = "https://www.amd.com/en/support"
+  "EVGA Precision X1" = "https://www.evga.com/precisionx1/"
+  "NVIDIA GeForce Experience" = "https://www.nvidia.com/en-us/geforce/geforce-experience/"
+  "ASUS GPU Tweak II" = "https://www.asus.com/support/download-center/"
+}
+
+function Show-ManualDownloads {
+  Write-Note "=== MANUAL DOWNLOADS REQUIRED ==="
+  Write-Note "The following software is not available on winget and needs manual installation:"
+  Write-Note ""
+  
+  foreach ($app in $ManualDownloads.GetEnumerator()) {
+    Write-Host "• $($app.Key):" -ForegroundColor Yellow
+    Write-Host "  $($app.Value)" -ForegroundColor Cyan
+    Write-Host ""
+  }
+  
+  Write-Note "Click the links above to download and install manually."
+  Write-Note "================================="
+}
 
 # --- Main ---
 $haveWinget = Ensure-Winget
 if ($haveWinget) { winget source update | Out-Null }
 
-foreach ($app in $Apps) {
-  Write-Note "Installing: $($app.Name)"
+# Track installation results
+$InstallResults = @{
+  Successful = @()
+  Failed = @()
+  AlreadyInstalled = @()
+}
 
-  if ($haveWinget -and $app.Id -and (Test-AppInstalled -Id $app.Id)) {
-    Write-Ok "Already installed: $($app.Name)"
+foreach ($app in $Apps) {
+  if ($TestMode) {
+    Write-Note "[TEST MODE] Would install: $($app.Name)"
+    $InstallResults.Successful += $app.Name
     continue
   }
 
-  $installed = $false
+  Write-Note "Installing: $($app.Name)"
 
-  if ($haveWinget -and $app.Id) {
-    try   { $installed = Install-WithWinget -Id $app.Id -Version $app.Version }
-    catch { Write-No "winget failed for $($app.Name): $($_.Exception.Message)" }
+  # Skip if already installed
+  if ($haveWinget -and (Test-AppInstalled -Id $app.Id)) {
+    Write-Ok "Already installed: $($app.Name)"
+    $InstallResults.AlreadyInstalled += $app.Name
+    continue
   }
 
-  if (-not $installed -and $app.FallbackUrl) {
-    try   { $installed = Install-FromUrl -Url $app.FallbackUrl -Silent ($app.Silent) }
-    catch { Write-No "Fallback failed for $($app.Name): $($_.Exception.Message)" }
+  # Install with winget
+  if ($haveWinget) {
+    try { 
+      $installed = Install-WithWinget -Id $app.Id
+      if ($installed) { 
+        Write-Ok "Installed: $($app.Name)"
+        $InstallResults.Successful += $app.Name
+      } else {
+        Write-No "FAILED: $($app.Name)"
+        $InstallResults.Failed += $app.Name
+      }
+    }
+    catch { 
+      Write-No "winget failed for $($app.Name): $($_.Exception.Message)"
+      $InstallResults.Failed += $app.Name
+    }
+  } else {
+    Write-No "winget not available, skipping $($app.Name)"
+    $InstallResults.Failed += $app.Name
   }
-
-  if ($installed) { Write-Ok "Installed: $($app.Name)" }
-  else            { Write-No "FAILED: $($app.Name). Provide FallbackUrl or adjust Id/Version." }
 }
 
+# --- Summary ---
+if ($TestMode) {
+  Write-Note "=== TEST MODE SUMMARY ==="
+  Write-Note "Would install: $($InstallResults.Successful.Count) apps"
+  Write-Note "No actual installations performed."
+} else {
+  Write-Note "=== INSTALLATION SUMMARY ==="
+  Write-Note "Successful: $($InstallResults.Successful.Count) apps"
+  Write-Note "Already installed: $($InstallResults.AlreadyInstalled.Count) apps"
+  Write-Note "Failed: $($InstallResults.Failed.Count) apps"
+
+  if ($InstallResults.Failed.Count -gt 0) {
+    Write-No "Failed apps: $($InstallResults.Failed -join ', ')"
+  }
+}
+
+Write-Note ""
+Show-ManualDownloads
+
 Stop-Transcript | Out-Null
-Write-Host ""
-Write-Ok "All done. Log: $LogFile"
