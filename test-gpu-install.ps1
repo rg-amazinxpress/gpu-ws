@@ -88,7 +88,7 @@ $ManualDownloads = @{
   "AMD Adrenalin" = "https://www.amd.com/en/support"
   "EVGA Precision X1" = "https://www.evga.com/precisionx1/"
   "NVIDIA GeForce Experience" = "https://www.nvidia.com/en-us/geforce/geforce-experience/"
-  "ASUS GPU Tweak II" = "https://www.asus.com/support/download-center/"
+  "ASUS GPU Tweak III" = "https://www.asus.com/us/supportonly/gpu%20tweak%20iii/helpdesk_download/"
 }
 
 function Show-ManualDownloads {
